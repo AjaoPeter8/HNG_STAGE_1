@@ -2,40 +2,16 @@ import express from "express";
 import bodyParser from "body-parser";
 import crypto from 'crypto';
 import axios from "axios";
+import { getProperties,parseNaturalLanguageQuery,filterStrings } from "./function.js";
 
 const app = express();
 const port = 3000;
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
-app.use(express.json({ strict: false }));  // Parses JSON; strict: false allows non-strict types if needed
+app.use(express.json());  // Parses JSON; strict: false allows non-strict types if needed
 
 const inputs = {};
-
-
-function getProperties(x) {
-  const length = x.length;
-  const is_palindrome = x === x.split('').reverse().join('');
-  const unique_characters = new Set(x.split('')).size;
-  const word_count = x.trim().split(/\s+/).length;
-  const sha256_hash = crypto.createHash('sha256').update(x).digest('hex');
-  const character_frequency_map = {};
-  for (const char of x) {
-    character_frequency_map[char] = (character_frequency_map[char] || 0) + 1;
-  }
-
-
-  const properties = {
-    length,
-    is_palindrome,
-    unique_characters,
-    word_count,
-    sha256_hash,
-    character_frequency_map
-  }
-  return (properties);
-}
-
 
 
 app.post("/strings", async (req, res) => {
@@ -46,7 +22,7 @@ app.post("/strings", async (req, res) => {
   }
 
   const request = req.body.value.trim();
-  console.log(request);
+  // console.log(request);
 
 
   //checks if requests is string
@@ -63,6 +39,8 @@ app.post("/strings", async (req, res) => {
   } else {
     inputs[text] = getProperties(text);
   }
+
+console.log(inputs);
 
   const properties = getProperties(text);
 
@@ -89,12 +67,74 @@ app.get("/strings/:string_value", (req, res) => {
 });
 
 // New GET /strings with filters
+// app.get("/strings", (req, res) => {
+//   // Parse and validate query params
+//   const {
+//     is_palindrome,
+//     min_length,
+//     max_length,
+//     word_count,
+//     contains_character
+//   } = req.query;
+
+//   // console.log ('x:', req.query);
+
+//   // Validation
+//   if (is_palindrome !== undefined && is_palindrome !== 'true' && is_palindrome !== 'false') {
+//     return res.status(400).json({ error: 'is_palindrome must be "true" or "false"' });
+//   }
+//   if (min_length !== undefined && (isNaN(min_length) || parseInt(min_length) < 0)) {
+//     return res.status(400).json({ error: 'min_length must be a non-negative integer' });
+//   }
+//   if (max_length !== undefined && (isNaN(max_length) || parseInt(max_length) < 0)) {
+//     return res.status(400).json({ error: 'max_length must be a non-negative integer' });
+//   }
+//   if (word_count !== undefined && (isNaN(word_count) || parseInt(word_count) < 0)) {
+//     return res.status(400).json({ error: 'word_count must be a non-negative integer' });
+//   }
+//   if (contains_character !== undefined && contains_character.length !== 1) {
+//     return res.status(400).json({ error: 'contains_character must be a single character' });
+//   }
+
+//   // Convert to usable types
+//   const boolPalindrome = is_palindrome === 'true';
+//   const intMinLen = parseInt(min_length) || 0;
+//   const intMaxLen = parseInt(max_length) || Infinity;
+//   const intWordCount = parseInt(word_count);
+//   const charToContain = contains_character;
+
+//   // Filter stored entries
+//   const matches = Object.entries(inputs)
+//     .filter(([text, properties]) => {
+//       // Apply each filter (skip if param undefined)
+//       if (is_palindrome !== undefined && properties.is_palindrome !== boolPalindrome) return false;
+//       if (min_length !== undefined && properties.length < intMinLen) return false;
+//       if (max_length !== undefined && properties.length > intMaxLen) return false;
+//       if (word_count !== undefined && properties.word_count !== intWordCount) return false;
+//       if (contains_character !== undefined && (properties.character_frequency_map[charToContain] || 0) === 0) return false;
+//       return true;
+//     })
+//     .map(([text, properties]) => ({
+//       id: properties.sha256_hash,
+//       value: text,
+//       properties
+//     }));
+
+//     console.log(matches);
+//     const filtersApplied = req.query;
+
+//   res.status(200).json({
+//     data: matches,
+//     count: matches.length,
+//     filters_applied: filtersApplied
+//   });
+// });
+
 app.get("/strings", (req, res) => {
-  // Parse and validate query params
   const {
     is_palindrome,
-    min_length = 0,
-    max_length = Infinity,
+    min_length,
+    max_length,
     word_count,
     contains_character
   } = req.query;
@@ -116,68 +156,59 @@ app.get("/strings", (req, res) => {
     return res.status(400).json({ error: 'contains_character must be a single character' });
   }
 
-  // Convert to usable types
+  // Normalize and convert types
   const boolPalindrome = is_palindrome === 'true';
-  const intMinLen = parseInt(min_length) || 0;
-  const intMaxLen = parseInt(max_length) || Infinity;
-  const intWordCount = parseInt(word_count);
-  const charToContain = contains_character;
+  const intMinLen = min_length ? parseInt(min_length) : 0;
+  const intMaxLen = max_length ? parseInt(max_length) : Infinity;
+  const intWordCount = word_count ? parseInt(word_count) : undefined;
+  const charToContain = contains_character ? contains_character.toLowerCase() : undefined;
 
-  // Filter stored entries
+  // Ensure inputs exist
+  // if (!inputs || Object.keys(inputs).length === 0) {
+  //   return res.status(200).json({
+  //     data: [],
+  //     count: 0,
+  //     filters_applied: req.query,
+  //     message: "No data available."
+  //   });
+  // }
+
+  // Filtering logic
   const matches = Object.entries(inputs)
     .filter(([text, properties]) => {
-      // Apply each filter (skip if param undefined)
-      if (is_palindrome !== undefined && properties.isPalindrome !== boolPalindrome) return false;
-      if (min_length !== undefined && properties.length < intMinLen) return false;
-      if (max_length !== undefined && properties.length > intMaxLen) return false;
-      if (word_count !== undefined && properties.word_count !== intWordCount) return false;
-      if (contains_character !== undefined && (properties.character_frequency_map[charToContain] || 0) === 0) return false;
+      // Normalize stored data (if needed)
+      const textProps = {
+        ...properties,
+        character_frequency_map: Object.fromEntries(
+          Object.entries(properties.character_frequency_map).map(([ch, freq]) => [ch.toLowerCase(), freq])
+        )
+      };
+
+      if (is_palindrome !== undefined && textProps.is_palindrome !== boolPalindrome) return false;
+      if (min_length !== undefined && textProps.length < intMinLen) return false;
+      if (max_length !== undefined && textProps.length > intMaxLen) return false;
+      if (word_count !== undefined && textProps.word_count !== intWordCount) return false;
+      if (contains_character !== undefined && (textProps.character_frequency_map[charToContain] || 0) === 0)
+        return false;
+
       return true;
     })
     .map(([text, properties]) => ({
       id: properties.sha256_hash,
       value: text,
-      properties
+      properties,
+      created_at: new Date().toISOString()
     }));
+  console.log(matches);
+  console.log("Filters Applied:", req.query);
+  console.log("Matches Found:", matches.length);
 
   res.status(200).json({
     data: matches,
     count: matches.length,
-    filters_applied: filtersApplied
+    filters_applied: req.query
   });
 });
-
-
-// Helper function: Parse natural language to filter params
-function parseNaturalLanguageQuery(query) {
-  const lower = query.toLowerCase();
-  const filters = {};
-
-  // Example parsing rules
-  if (lower.includes('palindromic')) filters.is_palindrome = true;
-  if (lower.includes('single word')) filters.word_count = 1;
-  if (lower.match(/longer than (\d+)/)) filters.min_length = parseInt(lower.match(/longer than (\d+)/)[1]) + 1;
-  if (lower.match(/containing the letter (\w)/)) filters.contains_character = lower.match(/containing the letter (\w)/)[1];
-  if (lower.match(/contain the first vowel/)) filters.contains_character = 'a';
-
-  // Add more patterns as needed...
-
-  return Object.keys(filters).length ? filters : null;
-}
-
-function filterStrings(filters) {
-  return Object.values(inputs).filter(strObj => {
-    const text = strObj.value;
-
-    // Apply filters
-    if (filters.word_count && text.trim().split(/\s+/).length !== filters.word_count) return false;
-    if (filters.is_palindrome && text !== text.split('').reverse().join('')) return false;
-    if (filters.min_length && text.length < filters.min_length) return false;
-    if (filters.contains_character && !text.includes(filters.contains_character)) return false;
-
-    return true;
-  });
-}
 
 
 
